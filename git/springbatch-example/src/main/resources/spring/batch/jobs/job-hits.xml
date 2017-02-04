@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:batch="http://www.springframework.org/schema/batch" xmlns:util="http://www.springframework.org/schema/util"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/batch 
+		http://www.springframework.org/schema/batch/spring-batch-2.2.xsd
+		http://www.springframework.org/schema/beans 
+		http://www.springframework.org/schema/beans/spring-beans-3.2.xsd
+		http://www.springframework.org/schema/util 
+		http://www.springframework.org/schema/util/spring-util-3.2.xsd
+		">
+
+	<import resource="../config/context.xml" />
+	<import resource="../config/database.xml" />
+
+
+	<job id="partitionJob" xmlns="http://www.springframework.org/schema/batch">
+
+		<step id="deleteDir" next="masterStep">
+			<tasklet ref="fileDeletingTasklet" />
+		</step>
+
+
+		<step id="masterStep">
+			<partition step="slave" partitioner="rangePartitioner">
+				<handler grid-size="5" task-executor="taskExecutor" />
+			</partition>
+		</step>
+
+	</job>
+
+
+	<step id="slave" xmlns="http://www.springframework.org/schema/batch">
+		<tasklet>
+			<chunk reader="itemReader" processor="itemProcessor" writer="flatFileItemWriter"
+				commit-interval="8" />
+			<listeners>
+				<listener ref="customItemWriterListener" />
+			</listeners>
+		</tasklet>
+	</step>
+
+	<bean id="rangePartitioner" class="com.bc.batch.watch.particioner.RangePartitioner" />
+
+	<bean id="taskExecutor" class="org.springframework.core.task.SimpleAsyncTaskExecutor" />
+
+	<bean id="itemProcessor" class="com.bc.batch.watch.processor.ResultModelProcessor"
+		scope="step">
+		<property name="threadName" value="#{stepExecutionContext[name]}" />
+	</bean>
+
+	<job id="testJob" xmlns="http://www.springframework.org/schema/batch">
+		<step id="step1">
+			<tasklet>
+				<chunk reader="itemReader" writer="flatFileItemWriter"
+					commit-interval="5" />
+			</tasklet>
+		</step>
+	</job>
+
+	<bean id="itemWriter" class="org.springframework.batch.item.xml.StaxEventItemWriter">
+		<property name="resource" value="file:xml/outputs/ResultModel.xml" />
+		<property name="marshaller" ref="resultModelUnmarshaller" />
+		<property name="rootTagName" value="resultModel" />
+	</bean>
+
+	<bean id="resultModelUnmarshaller" class="org.springframework.oxm.xstream.XStreamMarshaller">
+		<property name="aliases">
+			<util:map id="aliases">
+				<entry key="fid" value="com.bc.batch.watch.model.ResultModel" />
+			</util:map>
+		</property>
+	</bean>
+
+	<!-- Listener -->
+	<bean id="customItemWriterListener" class="com.bc.batch.watch.listener.CustomItemWriterListener" scope="step">
+		<property name="name" value="#{stepExecutionContext[name]}"/>
+	</bean>
+
+	<!-- csv file writer -->
+	<bean id="flatFileItemWriter" class="org.springframework.batch.item.file.FlatFileItemWriter"
+		scope="step">
+		<property name="resource"
+			value="file:csv/outputs/resultModel#{stepExecutionContext[name]}.csv" />
+		<property name="forceSync" value="true" />
+		<property name="appendAllowed" value="false" />
+		<property name="lineAggregator">
+			<bean
+				class="org.springframework.batch.item.file.transform.DelimitedLineAggregator">
+				<property name="delimiter" value="," />
+				<property name="fieldExtractor">
+					<bean
+						class="org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor">
+						<property name="names"
+							value="sourcetable, fieldchanges, hitdate,
+							accountnumber, fid ,first, 
+							paternal , maternal,rfc,
+							parent_id ,companyname, type" />
+					</bean>
+				</property>
+			</bean>
+		</property>
+	</bean>
+
+	<bean id="fileDeletingTasklet" class="com.bc.batch.watch.tasklet.FileDeletingTasklet">
+		<property name="directory" value="file:csv/outputs/" />
+	</bean>
+
+	<bean id="itemReader"
+		class="org.springframework.batch.item.database.JdbcCursorItemReader"
+		scope="step">
+		<property name="dataSource" ref="dataSource" />
+		<property name="sql"
+			value="SELECT skip  #{stepExecutionContext[skip]}
+						  limit #{stepExecutionContext[limit]}
+							h.sourcetable, h.fieldchanges,h.hitdate ,
+							e.accountnumber, e.fid ,e.first ,
+							e.paternal , e.maternal,e.rfc,
+							e.parent_id ,e.companyname, r.type	
+			 		FROM watch_hit h	JOIN watch_request r  ON r.id = h.watchrequestid  
+			 		JOIN watch_entity e ON e.id = h.entityid	 
+			 		WHERE e.batch_id = r.batch_id  
+			 			and h.watchrequestid =#{jobParameters[requestId]}
+			 			and h.criterionid =#{jobParameters[criterionId]}" />
+
+		<property name="rowMapper">
+			<bean class="com.bc.batch.watch.model.ResultModelMapper" />
+		</property>
+	</bean>
+
+
+</beans>

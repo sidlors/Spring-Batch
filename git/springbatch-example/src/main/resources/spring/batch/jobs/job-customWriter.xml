@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:batch="http://www.springframework.org/schema/batch" 
+	xmlns:util="http://www.springframework.org/schema/util"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/batch 
+		http://www.springframework.org/schema/batch/spring-batch-2.2.xsd
+		http://www.springframework.org/schema/beans 
+		http://www.springframework.org/schema/beans/spring-beans-3.2.xsd
+		http://www.springframework.org/schema/util 
+		http://www.springframework.org/schema/util/spring-util-3.2.xsd
+		">
+
+	<import resource="../config/context.xml" />
+	<import resource="../config/database.xml" />
+	<bean id="customerService"	class="com.bc.batch.watch.custom.CustomerServiceImpl" />
+	<bean id="itemWriterAdapter"
+		class="org.springframework.batch.item.adapter.ItemWriterAdapter">
+		<property name="targetObject" ref="customerService" />
+		<property name="targetMethod" value="logCustomer" />
+	</bean>
+	
+	
+	<step id="formatFileStep">
+		<tasklet>
+			<chunk reader="customerFileReader" writer="itemWriterAdapter"
+				commit-interval="10" />
+		</tasklet>
+	</step>
+	<job id="formatJob">
+		<step id="step1" parent="formatFileStep" />
+	</job>
+
+</beans>
